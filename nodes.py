@@ -1447,8 +1447,14 @@ class OmniNoise:
 
 	def generate_noise(self, noise_type, width, height, value_min, value_max,
 	                   red_min, red_max, green_min, green_max, blue_min, blue_max,
-	                   seed, random_distribution="Uniform (TV Static)", turbulence=2.75):
+	                   seed, random_distribution=None, turbulence=None):
 		"""Main entry point - branches to appropriate noise generator"""
+		# Apply defaults for optional parameters (handles case when widget is hidden)
+		if random_distribution is None:
+			random_distribution = "Uniform (TV Static)"
+		if turbulence is None:
+			turbulence = 2.75
+
 		if noise_type == "Random":
 			return self._generate_random(width, height, value_min, value_max,
 			                            red_min, red_max, green_min, green_max,
@@ -1469,6 +1475,9 @@ class OmniNoise:
 			return self._generate_brown(width, height, value_min, value_max,
 			                           red_min, red_max, green_min, green_max,
 			                           blue_min, blue_max, seed)
+		else:
+			# Fallback - should never happen but prevents silent failure
+			raise ValueError(f"Unknown noise type: {noise_type}")
 
 	def _generate_random(self, width, height, value_min, value_max,
 	                     red_min, red_max, green_min, green_max,
@@ -1528,13 +1537,10 @@ class OmniNoise:
 	                     red_min, red_max, green_min, green_max,
 	                     blue_min, blue_max, seed):
 		"""Generate plasma noise using recursive subdivision"""
-		# Simplified plasma generation - delegates to PlasmaNoise implementation
-		# For full implementation, would copy the entire plasma algorithm here
-		# For now, create instance and delegate
 		plasma_node = PlasmaNoise()
-		return plasma_node.generate_noise(width, height, turbulence, value_min, value_max,
-		                                  red_min, red_max, green_min, green_max,
-		                                  blue_min, blue_max, seed)
+		return plasma_node.generate_plasma(width, height, turbulence, value_min, value_max,
+		                                   red_min, red_max, green_min, green_max,
+		                                   blue_min, blue_max, seed)
 
 	def _generate_grey(self, width, height, value_min, value_max,
 	                   red_min, red_max, green_min, green_max,
