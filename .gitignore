@@ -1,2 +1,7 @@
 __pycache__/*
 __pycache__
+
+# Local development documentation (not for upstream)
+private/
+.claude/
+.vscode/

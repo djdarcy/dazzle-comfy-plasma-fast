@@ -1352,12 +1352,224 @@ class LoadImagePathWithMetadata:
 
 		return True
 
+class OmniNoise:
+	"""
+	Unified noise generator combining all noise types into a single node.
+	Supports: Random (Uniform/Gaussian), Plasma, Grey, Pink, and Brown noise.
+	"""
+	@classmethod
+	def INPUT_TYPES(s):
+		return {
+			"required": {
+				"noise_type": (["Random", "Plasma", "Grey", "Pink", "Brown"], {
+					"default": "Random"
+				}),
+				"width": ("INT", {
+					"default": 512,
+					"min": 128,
+					"max": 8192,
+					"step": 8
+				}),
+				"height": ("INT", {
+					"default": 512,
+					"min": 128,
+					"max": 8192,
+					"step": 8
+				}),
+				"value_min": ("INT", {
+					"default": -1,
+					"min": -1,
+					"max": 255,
+					"step": 1
+				}),
+				"value_max": ("INT", {
+					"default": -1,
+					"min": -1,
+					"max": 255,
+					"step": 1
+				}),
+				"red_min": ("INT", {
+					"default": -1,
+					"min": -1,
+					"max": 255,
+					"step": 1
+				}),
+				"red_max": ("INT", {
+					"default": -1,
+					"min": -1,
+					"max": 255,
+					"step": 1
+				}),
+				"green_min": ("INT", {
+					"default": -1,
+					"min": -1,
+					"max": 255,
+					"step": 1
+				}),
+				"green_max": ("INT", {
+					"default": -1,
+					"min": -1,
+					"max": 255,
+					"step": 1
+				}),
+				"blue_min": ("INT", {
+					"default": -1,
+					"min": -1,
+					"max": 255,
+					"step": 1
+				}),
+				"blue_max": ("INT", {
+					"default": -1,
+					"min": -1,
+					"max": 255,
+					"step": 1
+				}),
+				"seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
+			},
+			"optional": {
+				"random_distribution": (["Uniform (TV Static)", "Gaussian (Centered Gray)"], {
+					"default": "Uniform (TV Static)",
+					"tooltip": "Random noise distribution type (only used for Random noise). Uniform is backwards compatible with the RandNoise node."
+				}),
+				"turbulence": ("FLOAT", {
+					"default": 2.75,
+					"min": 0.5,
+					"max": 32,
+					"step": 0.01,
+					"tooltip": "Plasma turbulence amount (only used for Plasma noise)"
+				}),
+			}
+		}
+
+	RETURN_TYPES = ("IMAGE",)
+	FUNCTION = "generate_noise"
+	CATEGORY = "image/noise"
+
+	def generate_noise(self, noise_type, width, height, value_min, value_max,
+	                   red_min, red_max, green_min, green_max, blue_min, blue_max,
+	                   seed, random_distribution="Uniform (TV Static)", turbulence=2.75):
+		"""Main entry point - branches to appropriate noise generator"""
+		if noise_type == "Random":
+			return self._generate_random(width, height, value_min, value_max,
+			                            red_min, red_max, green_min, green_max,
+			                            blue_min, blue_max, seed, random_distribution)
+		elif noise_type == "Plasma":
+			return self._generate_plasma(width, height, turbulence, value_min, value_max,
+			                            red_min, red_max, green_min, green_max,
+			                            blue_min, blue_max, seed)
+		elif noise_type == "Grey":
+			return self._generate_grey(width, height, value_min, value_max,
+			                          red_min, red_max, green_min, green_max,
+			                          blue_min, blue_max, seed)
+		elif noise_type == "Pink":
+			return self._generate_pink(width, height, value_min, value_max,
+			                          red_min, red_max, green_min, green_max,
+			                          blue_min, blue_max, seed)
+		elif noise_type == "Brown":
+			return self._generate_brown(width, height, value_min, value_max,
+			                           red_min, red_max, green_min, green_max,
+			                           blue_min, blue_max, seed)
+
+	def _generate_random(self, width, height, value_min, value_max,
+	                     red_min, red_max, green_min, green_max,
+	                     blue_min, blue_max, seed, random_distribution):
+		"""Generate random noise (uniform or Gaussian distribution)"""
+		# Get device for GPU acceleration with CPU fallback
+		try:
+			device = comfy.model_management.get_torch_device()
+		except:
+			device = torch.device("cpu")
+
+		# Set seed for reproducibility
+		torch.manual_seed(seed)
+		if device.type == "cuda":
+			torch.cuda.manual_seed(seed)
+
+		# Calculate clamping values (preserve original logic)
+		lv = 0 if value_min == -1 else value_min
+		mv = 255 if value_max == -1 else value_max
+		lr = lv if red_min == -1 else red_min
+		mr = mv if red_max == -1 else red_max
+		lg = lv if green_min == -1 else green_min
+		mg = mv if green_max == -1 else green_max
+		lb = lv if blue_min == -1 else blue_min
+		mb = mv if blue_max == -1 else blue_max
+
+		if random_distribution == "Uniform (TV Static)":
+			# Uniform random noise (TV static) - 100% backwards compatible with RandNoise node
+			# torch.randint is exclusive on upper bound, so add 1
+			r_channel = torch.randint(lr, mr + 1, (height, width), dtype=torch.float32, device=device) / 255.0
+			g_channel = torch.randint(lg, mg + 1, (height, width), dtype=torch.float32, device=device) / 255.0
+			b_channel = torch.randint(lb, mb + 1, (height, width), dtype=torch.float32, device=device) / 255.0
+		else:  # Gaussian (Centered Gray)
+			# Gaussian noise centered around gray
+			# Generate normal distribution (mean=0, std=1), then scale to desired range
+			mean = 0.5  # Center around gray (0.5 in 0.0-1.0 range)
+			std = 0.25  # Standard deviation (gives ~95% of values in 0.0-1.0 range)
+
+			r_channel = torch.randn((height, width), dtype=torch.float32, device=device) * std + mean
+			g_channel = torch.randn((height, width), dtype=torch.float32, device=device) * std + mean
+			b_channel = torch.randn((height, width), dtype=torch.float32, device=device) * std + mean
+
+			# Clamp to specified RGB ranges
+			r_channel = torch.clamp(r_channel, lr / 255.0, mr / 255.0)
+			g_channel = torch.clamp(g_channel, lg / 255.0, mg / 255.0)
+			b_channel = torch.clamp(b_channel, lb / 255.0, mb / 255.0)
+
+		# Stack channels: (height, width, 3)
+		noise = torch.stack([r_channel, g_channel, b_channel], dim=2)
+
+		# Add batch dimension: (1, height, width, 3)
+		noise = noise.unsqueeze(0)
+
+		return (noise,)
+
+	def _generate_plasma(self, width, height, turbulence, value_min, value_max,
+	                     red_min, red_max, green_min, green_max,
+	                     blue_min, blue_max, seed):
+		"""Generate plasma noise using recursive subdivision"""
+		# Simplified plasma generation - delegates to PlasmaNoise implementation
+		# For full implementation, would copy the entire plasma algorithm here
+		# For now, create instance and delegate
+		plasma_node = PlasmaNoise()
+		return plasma_node.generate_noise(width, height, turbulence, value_min, value_max,
+		                                  red_min, red_max, green_min, green_max,
+		                                  blue_min, blue_max, seed)
+
+	def _generate_grey(self, width, height, value_min, value_max,
+	                   red_min, red_max, green_min, green_max,
+	                   blue_min, blue_max, seed):
+		"""Generate greyscale noise with RGB mapping"""
+		grey_node = GreyNoise()
+		return grey_node.generate_noise(width, height, value_min, value_max,
+		                                red_min, red_max, green_min, green_max,
+		                                blue_min, blue_max, seed)
+
+	def _generate_pink(self, width, height, value_min, value_max,
+	                   red_min, red_max, green_min, green_max,
+	                   blue_min, blue_max, seed):
+		"""Generate pink noise with cube root transformation"""
+		pink_node = PinkNoise()
+		return pink_node.generate_noise(width, height, value_min, value_max,
+		                                red_min, red_max, green_min, green_max,
+		                                blue_min, blue_max, seed)
+
+	def _generate_brown(self, width, height, value_min, value_max,
+	                    red_min, red_max, green_min, green_max,
+	                    blue_min, blue_max, seed):
+		"""Generate brown noise with double cube root transformation"""
+		brown_node = BrownNoise()
+		return brown_node.generate_noise(width, height, value_min, value_max,
+		                                 red_min, red_max, green_min, green_max,
+		                                 blue_min, blue_max, seed)
+
 NODE_CLASS_MAPPINGS = {
 	"JDC_Plasma": PlasmaNoise,
 	"JDC_RandNoise": RandNoise,
 	"JDC_GreyNoise": GreyNoise,
 	"JDC_PinkNoise": PinkNoise,
 	"JDC_BrownNoise": BrownNoise,
+	"JDC_OmniNoise": OmniNoise,
 	"JDC_PlasmaSampler": PlasmaSampler,
 	"JDC_PowerImage": PowerImage,
 	"JDC_Contrast": ImageContrast,
@@ -1377,6 +1589,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
 	"JDC_GreyNoise": "Greyscale Noise",
 	"JDC_PinkNoise": "Pink Noise",
 	"JDC_BrownNoise": "Brown Noise",
+	"JDC_OmniNoise": "Omni Noise Generator",
 	"JDC_PlasmaSampler": "Plasma KSampler",
 	"JDC_PowerImage": "Image To The Power Of",
 	"JDC_Contrast": "Brightness & Contrast",
