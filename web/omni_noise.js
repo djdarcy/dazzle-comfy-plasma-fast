@@ -4,12 +4,30 @@
  * Dynamically shows/hides type-specific parameters based on noise type selection:
  * - turbulence: visible only for Plasma noise
  * - random_distribution: visible only for Random noise
+ *
+ * COMPATIBILITY NOTE:
+ * Uses dynamic imports with auto-depth detection to work in both:
+ * - Standalone mode: /extensions/dazzle-comfy-plasma-fast/
+ * - DazzleNodes mode: /extensions/DazzleNodes/dazzle-comfy-plasma-fast/
  */
 
-import { app } from "../../scripts/app.js";
+// Dynamic import helper for standalone vs DazzleNodes compatibility
+async function importComfyApp() {
+    const currentPath = import.meta.url;
+    const urlParts = new URL(currentPath).pathname.split('/').filter(p => p);
+    const depth = urlParts.length;
+    const prefix = '../'.repeat(depth);
 
-// Add method to node prototype
-app.registerExtension({
+    const appModule = await import(`${prefix}scripts/app.js`);
+    return appModule.app;
+}
+
+// Initialize extension with dynamic imports
+(async () => {
+    const app = await importComfyApp();
+
+    // Add method to node prototype
+    app.registerExtension({
     name: "dazzle.plasma.omni.methods",
     nodeCreated(node) {
         if (node.comfyClass !== "JDC_OmniNoise") return;
@@ -111,4 +129,5 @@ app.registerExtension({
             node.updateConditionalVisibility();
         }, 100);
     }
-});
+    });
+})();
